@@ -1,0 +1,20 @@
+# Third-party copyrighted paper kept locally for reference/citation —
+# not ours to redistribute.
+Surviving Generative AI*.pdf
+
+# Browser "Save Page As" snapshot of a GitHub README (GitHub's own site assets,
+# ~2.8MB of vendored CSS/JS). Reference material, not project source.
+ai-code-scanner_README.md*
+
+# Unrelated side project — lives in its own repo at
+# github.com/MUCKSUCK-Oss/debate-arena. Kept locally as a test corpus for the
+# classifier (it is the known-AI-generated calibration case).
+debate-arena-main/
+
+# macOS / Python noise
+.DS_Store
+__pycache__/
+*.pyc
+
+# Local Claude Code project context — not part of the published tool.
+CLAUDE.md
