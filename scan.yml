@@ -1,0 +1,72 @@
+name: Scan repo cohorts
+
+# Runs the whole study in the cloud so nothing has to run on a laptop.
+# Each shard clones repos one at a time and deletes them after scoring, so
+# runner disk stays flat regardless of sample size.
+
+on:
+  workflow_dispatch:
+    inputs:
+      per_cohort:
+        description: Repos to sample per cohort
+        default: "1000"
+      shards:
+        description: Parallel jobs (20 is the free-tier ceiling)
+        default: "20"
+
+jobs:
+  sample:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the sample
+        env:
+          GITHUB_TOKEN: ${{ secrets.SAMPLER_TOKEN || secrets.GITHUB_TOKEN }}
+        run: python3 github_sampler.py --per-cohort ${{ inputs.per_cohort }} -o sample.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sample
+          path: sample.json
+
+  scan:
+    needs: sample
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: sample
+      - name: Score this shard
+        run: |
+          python3 run_batch.py sample.json \
+            --shard ${{ matrix.shard }} \
+            --shards ${{ inputs.shards }} \
+            -o results-${{ matrix.shard }}.jsonl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: results-${{ matrix.shard }}
+          path: results-${{ matrix.shard }}.jsonl
+
+  report:
+    needs: scan
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: results-*
+          merge-multiple: true
+      - name: Merge and summarise
+        run: |
+          cat results-*.jsonl > all-results.jsonl
+          python3 analyze.py all-results.jsonl >> $GITHUB_STEP_SUMMARY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: final-results
+          path: all-results.jsonl
