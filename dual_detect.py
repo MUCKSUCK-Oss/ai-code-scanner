@@ -46,6 +46,12 @@ METADATA_PATTERNS = {
 CONTENT_THRESHOLD = 40.0
 CLONE_DEPTH = 250
 
+# A single AI commit in 250 does not make a repository AI-built. Flagging on
+# mere presence rewards size: busy projects with many contributors are more
+# likely to catch one AI commit by chance, which inverts the cohort comparison
+# entirely. Require AI to be a real share of recent history instead.
+METADATA_MIN_SHARE = 0.10
+
 
 def clone(url, depth=CLONE_DEPTH):
     tmp = tempfile.mkdtemp(prefix="dual_detect_")
@@ -76,11 +82,16 @@ def metadata_signal(repo_path):
         if hit:
             ai_commits += 1
             tools.update(hit)
+    share = ai_commits / len(commits) if commits else 0.0
     return {
         "ai_commits": ai_commits,
         "total_commits": len(commits),
+        "ai_share": round(share, 4),
         "tools": sorted(tools),
-        "flagged": ai_commits > 0,
+        "flagged": share >= METADATA_MIN_SHARE,
+        # Kept separately because it is what prior work reports, and the gap
+        # between the two is itself a result worth showing.
+        "any_ai_commit": ai_commits > 0,
     }
 
 
@@ -170,6 +181,8 @@ def main():
     ap.add_argument("--batch", help="sample.json from github_sampler.py")
     ap.add_argument("-o", "--out", help="write results as JSON")
     ap.add_argument("--limit", type=int, help="cap repos processed from --batch")
+    ap.add_argument("--shard", type=int, default=0, help="which slice to run (for parallel CI jobs)")
+    ap.add_argument("--shards", type=int, default=1)
     args = ap.parse_args()
 
     if not args.target and not args.batch:
@@ -181,6 +194,8 @@ def main():
             repos = json.load(f)
         if args.limit:
             repos = repos[:args.limit]
+        if args.shards > 1:
+            repos = [r for i, r in enumerate(repos) if i % args.shards == args.shard]
         for n, repo in enumerate(repos, 1):
             result = examine(repo["clone_url"])
             if not result:
