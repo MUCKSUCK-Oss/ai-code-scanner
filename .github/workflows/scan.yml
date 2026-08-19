@@ -41,16 +41,16 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: sample
-      - name: Score this shard
+      - name: Run both detectors over this shard
         run: |
-          python3 run_batch.py sample.json \
+          python3 dual_detect.py --batch sample.json \
             --shard ${{ matrix.shard }} \
             --shards ${{ inputs.shards }} \
-            -o results-${{ matrix.shard }}.jsonl
+            -o results-${{ matrix.shard }}.json
       - uses: actions/upload-artifact@v4
         with:
           name: results-${{ matrix.shard }}
-          path: results-${{ matrix.shard }}.jsonl
+          path: results-${{ matrix.shard }}.json
 
   report:
     needs: scan
@@ -62,11 +62,21 @@ jobs:
         with:
           pattern: results-*
           merge-multiple: true
-      - name: Merge and summarise
+      - name: Merge shards and print the paper's headline table
         run: |
-          cat results-*.jsonl > all-results.jsonl
-          python3 analyze.py all-results.jsonl >> $GITHUB_STEP_SUMMARY
+          python3 - <<'PY' >> $GITHUB_STEP_SUMMARY
+          import glob, json, sys
+          sys.path.insert(0, ".")
+          import dual_detect
+          rows = []
+          for path in sorted(glob.glob("results-*.json")):
+              with open(path) as f:
+                  rows.extend(json.load(f))
+          with open("all-results.json", "w") as f:
+              json.dump(rows, f, indent=2)
+          dual_detect.summarise(rows)
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: final-results
-          path: all-results.jsonl
+          path: all-results.json
