@@ -64,34 +64,78 @@ def clone(url, depth=CLONE_DEPTH):
         return None
 
 
+SEP = "===COMMIT==="
+FILES_MARK = "===FILES==="
+
+
 def metadata_signal(repo_path):
-    """Scan git history for agent fingerprints."""
+    """Scan git history for agent fingerprints, and check what they changed.
+
+    An AI marker on a commit says a tool was involved somewhere; it does not
+    say the commit wrote any code. Commits that only touch a README, a lockfile
+    or CI config would otherwise count the same as one that adds 400 lines of
+    Python, so we separate the two.
+    """
+    empty = {"ai_commits": 0, "total_commits": 0, "ai_share": 0.0, "tools": [],
+             "flagged": False, "any_ai_commit": False,
+             "ai_code_commits": 0, "ai_code_share": 0.0, "ai_lines_changed": 0,
+             "docs_only_ai_commits": 0}
     try:
         log = subprocess.run(
-            ["git", "-C", repo_path, "log", "--format=%an%n%ae%n%B%n--END--", "-n", str(CLONE_DEPTH)],
-            capture_output=True, text=True, timeout=120,
+            ["git", "-C", repo_path, "log", "-n", str(CLONE_DEPTH), "--numstat",
+             "--format=%s%%n%%an%%n%%ae%%n%%B%%n%s" % (SEP, FILES_MARK)],
+            capture_output=True, text=True, timeout=180,
         ).stdout
     except (subprocess.SubprocessError, OSError):
-        return {"ai_commits": 0, "tools": [], "total_commits": 0, "flagged": False}
+        return empty
 
-    commits = [c for c in log.split("--END--") if c.strip()]
-    tools, ai_commits = set(), 0
-    for commit in commits:
-        blob = commit.lower()
-        hit = [name for name, pat in METADATA_PATTERNS.items() if re.search(pat, blob)]
-        if hit:
-            ai_commits += 1
-            tools.update(hit)
-    share = ai_commits / len(commits) if commits else 0.0
+    tools = set()
+    total = ai_commits = ai_code_commits = docs_only = ai_lines = 0
+    for chunk in log.split(SEP):
+        if not chunk.strip():
+            continue
+        total += 1
+        header, _, filepart = chunk.partition(FILES_MARK)
+        hit = [n for n, pat in METADATA_PATTERNS.items() if re.search(pat, header.lower())]
+        if not hit:
+            continue
+        ai_commits += 1
+        tools.update(hit)
+
+        touched_code, lines = False, 0
+        for row in filepart.strip().splitlines():
+            cols = row.split("\t")
+            if len(cols) != 3:
+                continue
+            added, deleted, name = cols
+            if os.path.splitext(name)[1].lower() not in detector.LANGUAGES:
+                continue
+            touched_code = True
+            for value in (added, deleted):
+                if value.isdigit():
+                    lines += int(value)
+        if touched_code:
+            ai_code_commits += 1
+            ai_lines += lines
+        else:
+            docs_only += 1
+
+    share = ai_commits / total if total else 0.0
+    code_share = ai_code_commits / total if total else 0.0
     return {
         "ai_commits": ai_commits,
-        "total_commits": len(commits),
+        "total_commits": total,
         "ai_share": round(share, 4),
         "tools": sorted(tools),
-        "flagged": share >= METADATA_MIN_SHARE,
+        # Flag on commits that actually wrote code, not merely mentioned a tool.
+        "flagged": code_share >= METADATA_MIN_SHARE,
         # Kept separately because it is what prior work reports, and the gap
-        # between the two is itself a result worth showing.
+        # between these measures is itself a result worth showing.
         "any_ai_commit": ai_commits > 0,
+        "ai_code_commits": ai_code_commits,
+        "ai_code_share": round(code_share, 4),
+        "ai_lines_changed": ai_lines,
+        "docs_only_ai_commits": docs_only,
     }
 
 
@@ -112,6 +156,21 @@ def content_signal(repo_path):
         "tier": detector.get_flag_tier(score),
         "flagged": score >= CONTENT_THRESHOLD,
     }
+
+
+def ai_score(meta, content):
+    """One 0-100 figure combining both arms.
+
+    Strongest evidence leads, with a bonus when the two agree. Averaging would
+    be wrong here: a repository written entirely by pasting from a chat has no
+    git markers at all, so averaging halves a correct content signal against a
+    zero that only means 'no tool announced itself'. Either arm firing is real
+    evidence; both firing is stronger.
+    """
+    a = 100.0 * meta.get("ai_code_share", 0.0)
+    b = content.get("score") or 0.0
+    combined = max(a, b) + 0.25 * min(a, b)
+    return round(min(combined, 100.0), 1)
 
 
 def verdict(meta, content):
@@ -135,6 +194,7 @@ def examine(url, keep=None):
             "repo": url,
             "metadata": meta,
             "content": content,
+            "ai_score": ai_score(meta, content),
             "verdict": verdict(meta, content),
         }
     finally:
