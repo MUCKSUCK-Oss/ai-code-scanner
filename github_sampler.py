@@ -121,6 +121,8 @@ def harvest(query, token, seen, out, cohort, limit):
                 "created_at": repo["created_at"][:10],
                 "pushed_at": repo["pushed_at"][:10],
                 "size_kb": repo.get("size", 0),
+                "forks": repo.get("forks_count", 0),
+                "open_issues": repo.get("open_issues_count", 0),
             })
             if len(out) >= limit:
                 return
