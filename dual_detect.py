@@ -57,7 +57,7 @@ def clone(url, depth=CLONE_DEPTH):
     tmp = tempfile.mkdtemp(prefix="dual_detect_")
     try:
         subprocess.run(["git", "clone", "--quiet", "--depth", str(depth), url, tmp],
-                       check=True, capture_output=True, text=True, timeout=300)
+                       check=True, capture_output=True, text=True, errors="replace", timeout=300)
         return tmp
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
         shutil.rmtree(tmp, ignore_errors=True)
@@ -84,7 +84,7 @@ def metadata_signal(repo_path):
         log = subprocess.run(
             ["git", "-C", repo_path, "log", "-n", str(CLONE_DEPTH), "--numstat",
              "--format=%s%%n%%an%%n%%ae%%n%%B%%n%s" % (SEP, FILES_MARK)],
-            capture_output=True, text=True, timeout=180,
+            capture_output=True, text=True, errors="replace", timeout=180,
         ).stdout
     except (subprocess.SubprocessError, OSError):
         return empty
