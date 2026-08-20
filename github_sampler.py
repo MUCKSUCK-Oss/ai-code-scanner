@@ -44,8 +44,14 @@ COHORTS = {
     },
     # Written before LLMs existed, so anything flagged here is by definition a
     # false positive. This is what makes the other two numbers trustworthy.
+    #
+    # The pushed:<2021 clause is what actually makes this a control. Selecting on
+    # creation date alone returns old projects that are still being developed
+    # today -- their most recent 250 commits are from 2024-2026, so they contain
+    # genuine AI commits and measure nothing. A repository must have gone
+    # dormant before LLMs existed for every line in it to be human-written.
     "control_prellm": {
-        "query": "stars:>=100",
+        "query": "stars:>=50 pushed:<2021-01-01",
         "window": (date(2012, 1, 1), date(2020, 12, 31)),
     },
 }
