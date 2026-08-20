@@ -352,7 +352,7 @@ def resolve_target(target):
         try:
             subprocess.run(
                 ['git', 'clone', '--depth', '1', target, tmp],
-                check=True, capture_output=True, text=True,
+                check=True, capture_output=True, text=True, errors="replace",
             )
         except subprocess.CalledProcessError as e:
             shutil.rmtree(tmp, ignore_errors=True)
