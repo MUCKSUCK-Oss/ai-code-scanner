@@ -62,7 +62,7 @@ def sample_files(repo_path, limit=MAX_FILES):
 
 def run_json(cmd, timeout=TOOL_TIMEOUT):
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        proc = subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=timeout)
     except (subprocess.SubprocessError, OSError):
         return None
     out = proc.stdout.strip()
