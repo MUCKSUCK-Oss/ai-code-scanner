@@ -13,6 +13,9 @@ on:
       shards:
         description: Parallel jobs (20 is the free-tier ceiling)
         default: "20"
+      sample_file:
+        description: Path to a committed sample JSON. Leave blank to sample fresh.
+        default: ""
 
 jobs:
   sample:
@@ -22,7 +25,16 @@ jobs:
       - name: Build the sample
         env:
           GITHUB_TOKEN: ${{ secrets.SAMPLER_TOKEN || secrets.GITHUB_TOKEN }}
-        run: python3 github_sampler.py --per-cohort ${{ inputs.per_cohort }} -o sample.json
+        run: |
+          # A committed list lets a partial re-run cover exactly the repositories
+          # a previous run missed, instead of resampling and rescanning the lot.
+          if [ -n "${{ inputs.sample_file }}" ]; then
+            echo "Using committed sample: ${{ inputs.sample_file }}"
+            cp "${{ inputs.sample_file }}" sample.json
+          else
+            python3 github_sampler.py --per-cohort ${{ inputs.per_cohort }} -o sample.json
+          fi
+          python3 -c "import json;print('repos to scan:',len(json.load(open('sample.json'))))"
       - uses: actions/upload-artifact@v4
         with:
           name: sample
