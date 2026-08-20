@@ -183,20 +183,27 @@ def verdict(meta, content):
     return "neither"
 
 
-def examine(url, keep=None):
+def examine(url, keep=None, with_quality=False, with_slop=False):
     path = keep or clone(url)
     if not path:
         return None
     try:
         meta = metadata_signal(path)
         content = content_signal(path)
-        return {
+        row = {
             "repo": url,
             "metadata": meta,
             "content": content,
             "ai_score": ai_score(meta, content),
             "verdict": verdict(meta, content),
         }
+        if with_quality:
+            import quality_audit
+            row["quality"] = quality_audit.audit(path)
+        if with_slop:
+            import slop_audit
+            row["slop"] = slop_audit.audit(path)
+        return row
     finally:
         if not keep:
             shutil.rmtree(path, ignore_errors=True)
@@ -243,6 +250,10 @@ def main():
     ap.add_argument("--limit", type=int, help="cap repos processed from --batch")
     ap.add_argument("--shard", type=int, default=0, help="which slice to run (for parallel CI jobs)")
     ap.add_argument("--shards", type=int, default=1)
+    ap.add_argument("--quality", action="store_true",
+                    help="also run static analysis (needs pylint, bandit, radon)")
+    ap.add_argument("--slop", action="store_true",
+                    help="also measure template reuse and hollowness")
     args = ap.parse_args()
 
     if not args.target and not args.batch:
@@ -257,13 +268,15 @@ def main():
         if args.shards > 1:
             repos = [r for i, r in enumerate(repos) if i % args.shards == args.shard]
         for n, repo in enumerate(repos, 1):
-            result = examine(repo["clone_url"])
+            result = examine(repo["clone_url"], with_quality=args.quality, with_slop=args.slop)
             if not result:
                 print("[%d/%d] FAILED %s" % (n, len(repos), repo["full_name"]), file=sys.stderr)
                 continue
             result["full_name"] = repo["full_name"]
             result["cohort"] = repo.get("cohort")
             result["stars"] = repo.get("stars")
+            import value_audit
+            result["value"] = value_audit.metrics(repo)
             rows.append(result)
             print("[%d/%d] %-40s meta=%-3d content=%-5s -> %s" % (
                 n, len(repos), repo["full_name"][:40],
@@ -271,7 +284,7 @@ def main():
                 result["content"]["score"], result["verdict"]), file=sys.stderr)
     else:
         local = args.target if os.path.isdir(args.target) else None
-        result = examine(args.target, keep=local)
+        result = examine(args.target, keep=local, with_quality=args.quality, with_slop=args.slop)
         if not result:
             sys.exit("could not read " + args.target)
         rows.append(result)
