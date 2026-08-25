@@ -1,87 +1,144 @@
-# 🕵️‍♂️ API-Free Heuristic AI Code Scanner
+# 🕵️‍♂️ Who Can See the AI Code?
 
-A lightweight, fully local Python tool that scans codebases to detect the probability of AI-generated code. Instead of relying on paid APIs or external machine learning models, this scanner uses a **heuristic approach**—looking for the common behavioral "tells" and structural patterns left behind by LLMs like ChatGPT and Claude.
+An empirical study of **9,982 GitHub repositories**, testing what AI-code detection methods miss — and whether AI use predicts whether a project finds users.
 
-Built as **Phase 2** of a research study on the proliferation and quality of AI-generated code in open-source repositories, as AI-assisted commits are projected to grow from ~1 billion to 14+ billion per year.
+📄 **Paper:** [10.5281/zenodo.22040134](https://doi.org/10.5281/zenodo.22040134)
+📊 **Data:** `paper/data/final_n10000.json` — 9,982 records, every number below reproduces from it
 
-## 🚀 Features
-* **100% Local & API-Free:** No API keys required, no rate limits, and your code never leaves your machine.
-* **Whole-Repo Scanning:** Point it at a local folder *or* a public GitHub URL — public repos are shallow-cloned, so still no API key needed.
-* **Multi-Language:** Python, JavaScript/TypeScript, Java, C/C++/C#, Go, Rust, Ruby, PHP, Swift, Kotlin.
-* **Heuristic Scoring System:** Grades files from 0 to 100 based on specific AI coding habits.
-* **4-Tier Flagging:** Visually categorizes files from "Human-Written" (Green) to "Likely AI Slop" (Red).
-* **Detailed Readouts:** Explains *why* a file received its score by listing the specific flags triggered.
-* **Validated Against Ground Truth:** Ships with a labeled regression suite and a confusion matrix — not just vibes.
+---
 
-## 🛠️ Usage
+## The question
 
-Scan a whole repository — local path or public GitHub URL:
+Every large study of AI-generated code finds it the same way: by looking for a **label** in git history — a `Co-authored-by` trailer, a bot account, a tool-specific email.
+
+Labels only exist when a tool adds one. Paste code from a chat window and nothing gets recorded.
+
+So this study ran **two** detectors over the same repositories: one reading git metadata, one reading the code itself.
+
+## What we found
+
+**The two methods barely overlap.**
+
+| Outcome | Repos | Share |
+|---|---|---|
+| Git metadata only | 792 | 7.9% |
+| Code reading only | **106** | 1.1% |
+| Both agreed | **10** | 0.1% |
+| Neither | 9,074 | 90.9% |
+
+Out of 908 repositories flagged by either method, they agreed on **ten**. The 106 caught only by code reading carry AI code with no git marker at all — invisible to every published prevalence estimate.
+
+**The detector is validated.** Against 3,333 repositories dormant since before 2021 — so definitionally human-written:
+
+| Method | False positives |
+|---|---|
+| Git metadata | **0 / 3,333** (0.00%) |
+| Code reading | 33 / 3,333 (0.99%) |
+
+**AI use does not predict adoption.**
+
+| Within | n | r | Verdict |
+|---|---|---|---|
+| Popular repos | 3,326 | +0.131 | significant, under 2% of variance |
+| New repos | 3,323 | +0.016 | **no effect** |
+
+At this sample size the significance bar is r = 0.035. A real effect in either direction would have shown up. Neither "AI slop is killing open source" nor its opposite survives the data.
+
+## Three measurement traps
+
+The study documents three measures that produced confident, wrong answers before being caught. The first is built into the standard method used by published work.
+
+1. **Presence is not prevalence.** Counting repos with *any* AI commit says popular projects use more AI (55.6% vs 26.2%). Counting the *share* of commits reverses it (3.90% vs 5.93%). A repo with 250 commits and 40 contributors catches an AI commit if any one person uses a tool once — so the criterion partly measures project activity. Three repos were once flagged on a single commit out of 250, including a professional IDE at 0.4%.
+
+2. **An AI commit is not AI code.** A commit tagged "Claude" may have edited only a README. Parsing the actual diffs removed 15% as documentation-only.
+
+3. **Engineering practice is not value.** An early "slop" score counted missing tests, CI and licences. The pre-LLM control scored 24.9 — *worse* than new AI-heavy repos at 23.8. Old abandoned human code looked sloppier than anything AI wrote. 81% of that score turned out to be professional-practice signals, not substance.
+
+---
+
+## Reproduce it
+
+Stdlib only for detection; static analysis needs three packages.
 
 ```bash
-python3 repo_ai_detector.py <local-path-or-github-url> [--top N] [--json out.json]
+pip install pylint bandit radon        # only for --quality
 ```
+
+Scan any repository, local path or public GitHub URL:
 
 ```bash
-python3 repo_ai_detector.py https://github.com/psf/requests --top 10
+python3 dual_detect.py https://github.com/owner/repo
 ```
 
-Stdlib only — nothing to `pip install`.
+Run the full study pipeline:
 
-## 🧠 How It Works (The Heuristics)
+```bash
+python3 github_sampler.py --per-cohort 3333 -o sample.json
+python3 dual_detect.py --batch sample.json --quality --slop -o results.json
+python3 correlate.py results.json
+```
 
-Files are scored 0–100 and bucketed into four tiers. Signals are split by **specificity**, which is the main defence against this approach's biggest confound: *mature, well-documented human code looks AI-like under naive documentation-density heuristics.*
+Reproduce the headline table from the published data:
 
-### Weak signals — ambiguous, also just good practice
-1. **Over-Commenting:** Unusually high comment-to-code ratios or excessive generic explanatory comments (`# initialize variable`).
-2. **Perfect Saturation:** Textbook 100% docstring/JSDoc and type-hint coverage across all functions.
-3. **Generic Variables:** Heavy reliance on placeholder names (`data`, `temp`, `result`, `val`).
+```bash
+python3 -c "import json,dual_detect; dual_detect.summarise(json.load(open('paper/data/final_n10000.json')))"
+```
 
-### Strong signals — structural fingerprints specific to AI scaffolding
-4. **Conversational Boilerplate:** Artifacts like *"Here is the script"* or *"Step 1:"* left in by mistake.
-5. **Section Banners:** Uniformly padded Unicode box-drawing dividers (`// ── Label ─────────`) that humans rarely type by hand.
-6. **Numbered Step-Comments:** Tutorial-style `1.`, `2.`, `3.` structuring across a file.
-7. **Reasoning Trails:** Self-narrating commentary about the *editing process* left inline (*"Actually the original... nothing more to do"*).
-8. **Scaffolding Headers:** A `<file>.ext — Description of the file` header comment on the first line.
-9. **Rigid Doc Templates:** An identical `@param`/`Returns:` skeleton repeated across *every* function.
-
-**If no strong signal fires, the score is capped at 40 (Tier 2).** Documentation density alone can never produce a high-confidence AI verdict. This rule was added after `psf/requests` — written years before LLMs existed — produced a **Tier 4 false positive** on docstring coverage and comment ratio alone.
-
-## 📊 Validation
+Check the classifier against labelled fixtures:
 
 ```bash
 python3 tests/test_detector.py -v
 ```
 
-Scores hand-labeled fixtures in `tests/fixtures/{human,ai}/` (decision rule: score > 50 ⇒ AI) and prints a confusion matrix. The fixtures deliberately include the *hard* cases — professionally documented human code, human code using ASCII section dividers — since easy fixtures would prove nothing.
+Expect 8/8 fixtures as labelled, 0 false positives.
 
-Current results — fixtures **8/8 as expected, 0 false positives**. Against real repositories:
+## What each script does
 
-| Repo | Provenance | Score | Tier |
-|---|---|---|---|
-| internal calibration repo | known AI-generated | 70.9 | 🟧 Tier 3 Orange |
-| `psf/requests` | pre-LLM, human | 23.1 | 🟩 Tier 1 Green |
-| `pallets/flask` | pre-LLM, human | 13.9 | 🟩 Tier 1 Green |
-| `expressjs/express` | pre-LLM, human | 9.8 | 🟩 Tier 1 Green |
+| Script | Role |
+|---|---|
+| `github_sampler.py` | Draws the three cohorts, even quotas per language and year |
+| `dual_detect.py` | Runs both detectors on one clone; produces the 0–100 AI score |
+| `repo_ai_detector.py` | The content classifier — structural fingerprints, weak/strong split |
+| `quality_audit.py` | Pylint, Bandit, radon on sampled files → defect density |
+| `slop_audit.py` | Template reuse, hollowness, cross-repo duplicate hashing |
+| `value_audit.py` | Adoption per month since creation, age-banded |
+| `correlate.py` | Ties AI score to quality and adoption, with significance gates |
 
-Repositories whose code predates ~2021 are *definitionally* human-written, which makes them the cheapest available control cohort for false-positive testing.
+## How the content classifier scores
 
-## ⚠️ Known Limitations
+Files score 0–100 on structural fingerprints, split by how specific they are.
 
-Stated plainly, because a detector that hides its failure modes isn't useful:
+**Weak signals** — also just good engineering: comment-to-code ratio, docstring coverage, type-hint saturation, generic identifiers.
 
-* **Comment-dependent.** AI code with comments stripped scores ~20/Tier 1 (see `tests/fixtures/ai/a2_stripped.py`, tracked as a known gap). Closing it needs non-comment signals — AST shape, identifier distributions, commit metadata.
-* **Heuristic, not a validated classifier.** This is regex pattern matching, not a statistically validated model. Treat tiers as a **triage signal, not a verdict**.
-* **Calibrated on a limited ground-truth set.** Different models leave different fingerprints; the structural tells here come from a small number of known-provenance repositories.
+**Strong signals** — structural artifacts of generation: conversational boilerplate, uniformly padded box-drawing banners, sequentially numbered step comments, self-narrating commentary about the editing process, `<file> — description` headers, rigid doc templates on every function.
 
-## 🔬 Research Context
+**If no strong signal fires, the score caps at 40.** Documentation density alone can never produce a high-confidence verdict. That rule exists because `psf/requests` — released years before LLMs — produced a maximum-score false positive on docstring coverage alone.
 
-This tool is Phase 2 of a four-phase pipeline:
+## Known limitations
 
-| Phase | Purpose | Status |
-|---|---|---|
-| 1. Data Collection | GitHub API scrape of ~10,000 repos, skewed toward active projects | not started |
-| 2. AI Classification | Detect AI fingerprints, rank files Tier 1 → Tier 4 | ✅ **implemented** |
-| 3. Quality Auditing | Static analysis (Pylint, Bandit) for logic errors, security, redundancy | not started |
-| 4. Utility Score (U) | Composite metric weighting syntax, security, and duplication | not started |
+Stated plainly, because a detector that hides its failure modes is not useful.
 
-The end goal is a **Comparative Cohort Analysis** testing whether AI acts as a productivity multiplier in high-vetted top repositories, or mostly deposits "code slop" into new and unfiltered ones.
+- **The content classifier is weak.** AUC 0.604 against metadata-labelled ground truth, barely above chance. It catches raw model output, not AI code that has been reviewed and edited. Its 106 unique finds are real; it is not a general-purpose detector.
+- **Comment-dependent.** AI code with comments stripped scores ~20 and is missed — see `tests/fixtures/ai/a2_stripped.py`.
+- **Quality analysis is Python-only.** Pylint and Bandit do not cover JavaScript, so that arm reflects 2,760 repositories.
+- **History depth is capped at 250 commits**, so older AI use in long-lived projects is invisible.
+- **Stars are an imperfect proxy for worth.** They reward visibility and timing too.
+- **Observational.** No causal claim is made or supported. The association in established projects is at least as easily explained by active teams adopting more tooling of every kind.
+
+## Citing
+
+```bibtex
+@misc{kaushik2026aicode,
+  author       = {Kaushik, Maulik},
+  title        = {Who Can See the AI Code? Detection Blind Spots and the
+                  Limits of Prevalence Estimates on GitHub},
+  year         = {2026},
+  publisher    = {Zenodo},
+  doi          = {10.5281/zenodo.22040134},
+  url          = {https://doi.org/10.5281/zenodo.22040134}
+}
+```
+
+## License
+
+MIT for the code. Paper and data are CC BY 4.0.
