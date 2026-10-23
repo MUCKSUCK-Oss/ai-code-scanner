@@ -2,7 +2,7 @@
 
 An empirical study of **9,982 GitHub repositories**, testing what AI-code detection methods miss — and whether AI use predicts whether a project finds users.
 
-📄 **Paper:** [10.5281/zenodo.22040134](https://doi.org/10.5281/zenodo.22040134)
+📄 **Paper:** is not yet complete
 📊 **Data:** `paper/data/final_n10000.json` — 9,982 records, every number below reproduces from it
 
 ---
